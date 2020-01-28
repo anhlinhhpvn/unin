@@ -1,0 +1,192 @@
+var TEMPLATE_SHEET_NAME = "Mẫu";
+var SHEET_ID = "1l2Gb-zMax2NFSF6x5rrbbIV5ZZ31HFALMu_c3wBITiw";
+var ACCOUNT_ADMINS = ["hoang3594@gmail.com", "a@gmail.com"];
+var DATE_SHEET_REGEX=/^[0-9]{2}\.[0-9]{2}\.[0-9]{4}$/;
+
+function STATIC_test_sheet_id() {
+  // Test that SHEET_ID is pointing at the correct spreadsheet
+  var spreadsheet = SpreadsheetApp.openById(SHEET_ID);
+  
+  createSheet(spreadsheet, "TEST_SHEET_ID");
+}
+
+function getSheetName(date) {
+  return Utilities.formatDate(date, "GMT+01", "dd.MM.YYYY");
+}
+
+function getTodaySheetName() {
+  return getSheetName(new Date());  
+}
+
+function getTodaySheet(spreadsheet) {
+  return spreadsheet.getSheetByName(getTodaySheetName());  
+}
+
+function onOpen() {  
+  var spreadsheet = SpreadsheetApp.getActive();
+  var menuItems = [
+    {name: 'Kiểm Tra Lại Ngày', functionName: 'chooseDayUi_show'},
+  ];
+  spreadsheet.addMenu('Chọn Ngày', menuItems);
+  
+  var todaySheet = getTodaySheet(spreadsheet);
+  if (todaySheet == null) {
+    todaySheet = createSheet(spreadsheet, getTodaySheetName());
+  }
+  todaySheet.activate();
+}
+    
+
+
+function lockSheet(sheet) {
+  var protection = sheet.getSheetProtection();
+  for (var e in ACCOUNT_ADMINS) {
+    protection.addUser(ACCOUNT_ADMINS[e]);
+  }
+  protection.setProtected(true);
+  sheet.setSheetProtection(protection);
+  Logger.log("Locked sheet: " + sheet);
+}
+
+
+function chooseDayUi_show() {
+  var app = UiApp.createApplication().setTitle("Chọn ngày").setWidth(200).setHeight(200);
+  var handler = app.createServerHandler("chooseDayUi_selected");
+  var picker = app.createDatePicker().addValueChangeHandler(handler).setId("date");
+  app.add(picker);
+  
+  SpreadsheetApp.getActive().show(app);
+  return app;
+}
+
+function chooseDayUi_selected(b) {
+  var app = UiApp.getActiveApplication();
+  var spreadsheet = SpreadsheetApp.getActive();
+  
+  Logger.log(b.parameter.date + 6 * 3600 * 1000);
+  
+  var name = getSheetName(b.parameter.date);
+  var sheet = spreadsheet.getSheetByName(name);
+  
+  if (sheet) {
+    sheet.activate();
+  } else {
+    Browser.msgBox("Không có dữ liệu cho ngày " + name);
+  }
+  
+  app.close();
+  return app;
+}
+
+// Time-triggered methods.
+function STATIC_lockTodaySheet() {
+  var spreadsheet = SpreadsheetApp.openById(SHEET_ID);
+  lockSheet(getTodaySheet(spreadsheet));
+}
+
+function STATIC_createSheetForDay() {
+  var spreadsheet = SpreadsheetApp.openById(SHEET_ID);
+  
+  // Construct name as YYYY.MM.DD.
+  var sheet_name = getTodaySheetName();
+  
+  // Create a new sheet if it doesn't exist already.
+  if (spreadsheet.getSheetByName(sheet_name) == null) {
+    message = "Creating sheet " + sheet_name;
+    
+    try {
+      createSheet(spreadsheet, sheet_name);
+      // Everything went fine.
+      // MailApp.sendEmail("hoang3594@gmail.com", "Bohemia 2 accounts", "Created sheet " + sheet_name);
+    } catch (b) {
+      message += "Failed to create sheet " + sheet_name + ". Failed with exception: " + b;
+      MailApp.sendEmail("hoang3594@gmail.com", "Bohemia 2 accounts", message);
+    }
+  } else {
+    MailApp.sendEmail("hoang3594@gmail.com", "Bohemia 2 accounts", "This sheet already exists " + sheet_name);
+  }
+    
+}
+
+function DELETE_ALL_EMPTY_CELLS() {
+  var spreadsheet = SpreadsheetApp.openById(SHEET_ID);
+  for (var e = 4; e <= 30; e++) {
+    var name;
+    if (e < 10) {
+      name = "0" + e;
+    } else {
+      name = "" + e;
+    }
+    var sheet = spreadsheet.getSheetByName(name + ".01.2014");
+    delete_empty_cells(sheet);
+  }
+}
+
+function DELETE_ALL_SHEETS() {
+  var spreadsheet = SpreadsheetApp.openById(SHEET_ID);
+  var sheets = spreadsheet.getSheets();
+  for (var e = 0; e < sheets.length; e++) {
+    var name = sheets[e].getName();
+    if (name != TEMPLATE_SHEET_NAME && name.slice(0,4) != "keep") {
+      spreadsheet.deleteSheet(sheets[e]);
+    }
+  }
+}
+
+function delete_empty_cells(sheet) {
+  var first_col = sheet.getDataRange().getLastColumn() + 1;
+  var first_row = sheet.getDataRange().getLastRow() + 1;
+  
+  var last_col = sheet.getRange("A:Z").getNumColumns();
+  var last_row = sheet.getRange("A:Z").getNumRows();
+
+  if (last_row > first_row) {
+    sheet.deleteRows(first_row, last_row - first_row);
+  }
+  if (last_col > first_col) {
+    sheet.deleteColumns(first_col, last_col - first_col);
+  }
+}
+
+/**
+ * Management script to re-sort all of the sheets into usable inverse order by date.
+ */
+function SORT_SHEET_BY_DATE() {
+  var spreadsheet = SpreadsheetApp.getActive();
+  var sheets = spreadsheet.getSheets();
+  
+  // Filter down to sheets that are dates.
+  filtered = sheets.filter(function(sheet) {
+    return sheet.getName().match(DATE_SHEET_REGEX) !== null;
+  });
+
+  // Parse string "dd.mm.yy" to a date object
+  function toDateObj(ddmmyy) {
+    a = ddmmyy.split(".");
+    return new Date(a[2], a[1] -1, a[0]);
+  }
+  
+  // Inverse sort the sheets by date (latest first)
+  sorted_sheets = filtered.sort(function(sheet_a, sheet_b) {
+    return toDateObj(sheet_b.getName()) - toDateObj(sheet_a.getName());
+  });
+  
+  for (var e = 0; e < sorted_sheets.length; e++) {
+    var sheet = sorted_sheets[e];
+    sheet.activate();
+    spreadsheet.moveActiveSheet(e + 1);
+//    Logger.log(sheet.getName());
+  }
+}
+
+function testDate() {
+  // Google does not support parsing from string, must pass Year, month (-1) and day.
+  Logger.log(new Date(2015,6-1,6));
+}
+
+function createSheet(spreadsheet, sheet_name) {
+  var template_sheet = spreadsheet.getSheetByName(TEMPLATE_SHEET_NAME);
+  var new_sheet = spreadsheet.insertSheet(sheet_name, 0, { template: template_sheet });
+  new_sheet.getRange("B2").setValue(sheet_name);
+  return new_sheet;
+}
